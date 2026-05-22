@@ -159,6 +159,7 @@ def _filter_response_headers(headers) -> dict[str, str]:
 
 SKIP_KEYS = frozenset({
     "model", "role", "type", "object", "id", "created", "index",
+    "name", "custom", "tool_choice",
     "system_fingerprint", "logprobs", "finish_reason", "stop_reason",
     "encoding_format", "tool_call_id", "citation", "response_format",
     "top_p", "temperature", "max_tokens", "max_completion_tokens",
@@ -180,6 +181,9 @@ def _redact_tree(obj, parent=None, key=None, combined_map=None, stats=None):
         stats = [0]
 
     if isinstance(obj, dict):
+        # Skip signed/cached content blocks entirely (signature would be invalidated)
+        if "signature" in obj:
+            return combined_map, stats[0]
         for k in list(obj.keys()):
             if k in SKIP_KEYS:
                 continue
