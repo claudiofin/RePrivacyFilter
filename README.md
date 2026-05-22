@@ -7,7 +7,7 @@ Lei intercepts OpenAI and Anthropic API calls, scrubs PII locally using an ONNX 
 ```
                    +---------------------------+
   Client App ----->| Lei Proxy                 |-----> Cloud API
-                   |  1. Detect & mask PII     |      (OpenAI / Anthropic)
+                   |  1. Detect & mask PII     |      (any provider)
                    |  2. Forward clean request  |
                    |                           |
   Client App <-----| Lei Proxy                 |<----- Cloud API
@@ -20,7 +20,7 @@ All PII detection and replacement runs on your machine. No personal data leaves 
 ## Quickstart
 
 ```bash
-git clone https://github.com/user/LeiPrivacyFilter.git
+git clone https://github.com/claudiofin/LeiPrivacyFilter.git
 cd LeiPrivacyFilter
 ./setup.sh          # creates venv, installs deps, downloads model
 ./lei run python my_script.py
@@ -71,10 +71,28 @@ export LEI_MODEL_PATH=/path/to/PrivacyFilter.onnx
 
 ## Supported Providers
 
-Both OpenAI and Anthropic APIs are intercepted simultaneously. Lei patches the standard base URLs so existing code works without modification:
+OpenAI and Anthropic work out of the box. Any OpenAI-compatible provider (Groq, Together, Ollama, Mistral, DeepSeek, xAI, LM Studio, Fireworks, Perplexity) can be added via config.
+
+**Built-in (zero config):**
 
 - `OPENAI_BASE_URL=http://127.0.0.1:8990/v1`
 - `ANTHROPIC_BASE_URL=http://127.0.0.1:8990`
+
+**Custom providers** -- create `~/.lei/providers.toml`:
+
+```toml
+[providers.groq]
+upstream = "https://api.groq.com/openai"
+env_var = "GROQ_BASE_URL"
+env_value = "http://127.0.0.1:{port}/p/groq"
+
+[providers.ollama]
+upstream = "http://localhost:11434"
+env_var = "OLLAMA_HOST"
+env_value = "http://127.0.0.1:{port}/p/ollama"
+```
+
+`./lei run` and `./lei env` automatically set env vars for all configured providers. See `providers.example.toml` for more examples.
 
 ## Limitations
 

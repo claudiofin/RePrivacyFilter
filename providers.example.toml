@@ -1,0 +1,68 @@
+# Lei provider configuration
+# Copy to ~/.lei/providers.toml to customize.
+#
+# Built-in providers (openai, anthropic) work out of the box.
+# Add entries here to override their upstream URLs or add new providers.
+#
+# Fields:
+#   upstream       — the real API base URL to forward requests to
+#   path_patterns  — URL path segments that identify this provider
+#   path_match     — "exact" (must match full path) or "suffix" (default, endswith)
+#   env_var        — environment variable name that lei sets for this provider
+#   env_value      — value to set ({port} is replaced with the proxy port)
+
+# --- Override built-in providers ---
+
+# [providers.openai]
+# upstream = "https://your-azure-endpoint.openai.azure.com/openai/deployments/gpt-4"
+
+# --- OpenAI-compatible providers ---
+# These use the same request/response format as OpenAI.
+# Only the upstream URL and env var differ.
+
+# [providers.groq]
+# upstream = "https://api.groq.com/openai"
+# env_var = "GROQ_BASE_URL"
+# env_value = "http://127.0.0.1:{port}/p/groq"
+
+# [providers.together]
+# upstream = "https://api.together.xyz"
+# env_var = "TOGETHER_BASE_URL"
+# env_value = "http://127.0.0.1:{port}/p/together"
+
+# [providers.fireworks]
+# upstream = "https://api.fireworks.ai/inference"
+# env_var = "FIREWORKS_BASE_URL"
+# env_value = "http://127.0.0.1:{port}/p/fireworks"
+
+# [providers.mistral]
+# upstream = "https://api.mistral.ai"
+# env_var = "MISTRAL_API_URL"
+# env_value = "http://127.0.0.1:{port}/p/mistral"
+
+# [providers.deepseek]
+# upstream = "https://api.deepseek.com"
+# env_var = "DEEPSEEK_BASE_URL"
+# env_value = "http://127.0.0.1:{port}/p/deepseek"
+
+# [providers.xai]
+# upstream = "https://api.x.ai"
+# env_var = "XAI_BASE_URL"
+# env_value = "http://127.0.0.1:{port}/p/xai"
+
+# [providers.perplexity]
+# upstream = "https://api.perplexity.ai"
+# env_var = "PERPLEXITY_BASE_URL"
+# env_value = "http://127.0.0.1:{port}/p/perplexity"
+
+# --- Local providers ---
+
+# [providers.ollama]
+# upstream = "http://localhost:11434"
+# env_var = "OLLAMA_HOST"
+# env_value = "http://127.0.0.1:{port}/p/ollama"
+
+# [providers.lmstudio]
+# upstream = "http://localhost:1234"
+# env_var = "LM_STUDIO_BASE_URL"
+# env_value = "http://127.0.0.1:{port}/p/lmstudio"

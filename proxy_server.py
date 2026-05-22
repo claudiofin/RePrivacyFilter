@@ -7,6 +7,7 @@ then de-anonymizes responses before returning them to the client.
 import asyncio
 import copy
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -21,21 +22,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from privacy_engine import PrivacyEngine
+from providers import load_providers, detect_provider, resolve_named_provider, RESERVED_PREFIXES
 
 DB_PATH = Path(__file__).parent / "proxy_log.db"
 STATIC_DIR = Path(__file__).parent / "static"
-
-UPSTREAM_HOSTS = {
-    "openai": "https://api.openai.com",
-    "anthropic": "https://api.anthropic.com",
-}
+PORT = int(os.environ.get("LEI_PORT", 8990))
 
 SESSION_TOKEN = os.environ.get("LEI_TOKEN", secrets.token_hex(16))
+
+log = logging.getLogger("lei")
 
 engine: PrivacyEngine | None = None
 proxy_enabled: bool = True
 http_client: httpx.AsyncClient | None = None
 _db_lock: asyncio.Lock | None = None
+_providers: dict = {}
 
 
 def init_db():
@@ -98,8 +99,9 @@ def _log_request_sync(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine, http_client, _db_lock
+    global engine, http_client, _db_lock, _providers
     _db_lock = asyncio.Lock()
+    _providers = load_providers(PORT)
     model_path = os.environ.get("LEI_MODEL_PATH")
     if model_path:
         engine = PrivacyEngine(model_path=model_path, use_coreml=True)
@@ -128,49 +130,56 @@ def _check_dashboard_auth(request: Request):
         raise HTTPException(status_code=403, detail="Invalid token")
 
 
-def _extract_text_fields(body: dict) -> list[tuple[list, int | str, str]]:
-    fields = []
+# --- Recursive text extraction / de-anonymization ---
 
-    if "prompt" in body and isinstance(body["prompt"], str):
-        fields.append(([], "prompt", body["prompt"]))
+SKIP_KEYS = frozenset({
+    "model", "role", "type", "object", "id", "created", "index",
+    "system_fingerprint", "logprobs", "finish_reason", "stop_reason",
+    "encoding_format", "tool_call_id", "citation", "response_format",
+    "top_p", "temperature", "max_tokens", "max_completion_tokens",
+    "stream", "stream_options", "n", "stop", "presence_penalty",
+    "frequency_penalty", "seed", "service_tier", "top_k",
+    "anthropic_version", "x-api-key",
+    "url", "source", "media_type", "file_id",
+    "training_file", "validation_file",
+})
 
-    messages = body.get("messages", [])
-    for i, msg in enumerate(messages):
-        content = msg.get("content")
-        if isinstance(content, str):
-            fields.append((["messages", i], "content", content))
-        elif isinstance(content, list):
-            for j, block in enumerate(content):
-                if isinstance(block, dict) and block.get("type") == "text":
-                    fields.append(
-                        (["messages", i, "content", j], "text", block["text"])
-                    )
-
-    if "input" in body and isinstance(body["input"], str):
-        fields.append(([], "input", body["input"]))
-
-    return fields
+MIN_TEXT_LEN = 8
 
 
-def _set_nested(obj, path: list, key, value):
-    cur = obj
-    for p in path:
-        cur = cur[p]
-    cur[key] = value
+def _redact_tree(obj, parent=None, key=None, combined_map=None, stats=None):
+    """Walk obj in-place, redact all string values that could contain PII."""
+    if combined_map is None:
+        combined_map = {}
+    if stats is None:
+        stats = [0]
+
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            if k in SKIP_KEYS:
+                continue
+            _redact_tree(obj[k], obj, k, combined_map, stats)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            _redact_tree(v, obj, i, combined_map, stats)
+    elif isinstance(obj, str) and parent is not None and len(obj) >= MIN_TEXT_LEN:
+        if obj.startswith("data:"):
+            return
+        if obj.startswith(("http://", "https://")) and "\n" not in obj and len(obj) < 2048:
+            return
+        sanitized, spans, rmap = engine.redact(obj)
+        if spans:
+            parent[key] = sanitized
+            combined_map.update(rmap)
+            stats[0] += len(spans)
+
+    return combined_map, stats[0]
 
 
 def _redact_body_sync(body: dict) -> tuple[dict, dict[str, str], int, float]:
     redacted = copy.deepcopy(body)
-    combined_map: dict[str, str] = {}
-    total_pii = 0
     t0 = time.time()
-
-    for path, key, text in _extract_text_fields(body):
-        sanitized, spans, rmap = engine.redact(text)
-        _set_nested(redacted, path, key, sanitized)
-        combined_map.update(rmap)
-        total_pii += len(spans)
-
+    combined_map, total_pii = _redact_tree(redacted)
     ms = (time.time() - t0) * 1000
     return redacted, combined_map, total_pii, ms
 
@@ -179,40 +188,30 @@ async def _redact_body(body: dict) -> tuple[dict, dict[str, str], int, float]:
     return await asyncio.to_thread(_redact_body_sync, body)
 
 
-def _deanon_response_text(text: str, reverse_map: dict[str, str]) -> str:
-    return engine.deanonymize(text, reverse_map)
+def _deanon_tree(obj, reverse_map: dict[str, str]):
+    """Walk obj in-place, replace all placeholder tags with originals."""
+    if isinstance(obj, dict):
+        for k in obj:
+            if isinstance(obj[k], str):
+                for tag, original in reverse_map.items():
+                    if tag in obj[k]:
+                        obj[k] = obj[k].replace(tag, original)
+            else:
+                _deanon_tree(obj[k], reverse_map)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, str):
+                for tag, original in reverse_map.items():
+                    if tag in obj[i]:
+                        obj[i] = obj[i].replace(tag, original)
+            else:
+                _deanon_tree(v, reverse_map)
 
 
 def _deanon_response_body(body: dict, reverse_map: dict[str, str]) -> dict:
     restored = copy.deepcopy(body)
-    choices = restored.get("choices", [])
-    for choice in choices:
-        msg = choice.get("message", {})
-        if isinstance(msg.get("content"), str):
-            msg["content"] = _deanon_response_text(msg["content"], reverse_map)
-        delta = choice.get("delta", {})
-        if isinstance(delta.get("content"), str):
-            delta["content"] = _deanon_response_text(delta["content"], reverse_map)
-
-    content = restored.get("content", [])
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                block["text"] = _deanon_response_text(block["text"], reverse_map)
-
+    _deanon_tree(restored, reverse_map)
     return restored
-
-
-def _detect_provider(path: str, headers: dict) -> tuple[str, str]:
-    if path.endswith("/messages") or "/messages?" in path:
-        return "anthropic", UPSTREAM_HOSTS["anthropic"]
-    if path.endswith("/chat/completions") or "/chat/completions?" in path:
-        return "openai", UPSTREAM_HOSTS["openai"]
-    if path.endswith("/completions") or path.endswith("/embeddings"):
-        return "openai", UPSTREAM_HOSTS["openai"]
-    if "x-api-key" in headers and "anthropic-version" in headers:
-        return "anthropic", UPSTREAM_HOSTS["anthropic"]
-    return "openai", UPSTREAM_HOSTS["openai"]
 
 
 # --- Dashboard API (auth required) ---
@@ -223,6 +222,7 @@ async def get_status():
         "enabled": proxy_enabled,
         "providers": engine.active_providers if engine else [],
         "model_loaded": engine is not None,
+        "configured_providers": list(_providers.keys()),
     }
 
 
@@ -285,19 +285,18 @@ async def ui(request: Request):
     return HTMLResponse(content=content)
 
 
-# --- Proxy handler (no auth — clients send their own API keys) ---
+# --- Proxy handlers (no auth — clients send their own API keys) ---
 
-@app.api_route(
-    "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]
-)
-async def proxy_handler(request: Request, path: str):
+async def _proxy_core(
+    request: Request,
+    provider: str,
+    upstream_base: str,
+    upstream_path: str,
+):
+    """Shared proxy logic for both auto-detect and named-provider routes."""
     headers_dict = dict(request.headers)
-    provider, upstream_base = _detect_provider(
-        request.url.path, headers_dict
-    )
-
     raw_body = await request.body()
-    upstream_url = f"{upstream_base}/v1/{path}"
+    upstream_url = f"{upstream_base}/{upstream_path}"
 
     forward_headers = {
         k: v
@@ -334,9 +333,9 @@ async def proxy_handler(request: Request, path: str):
         )
 
     is_streaming = body.get("stream", False)
+    log_endpoint = f"/{upstream_path}"
 
     redacted_body, reverse_map, pii_count, filter_ms = await _redact_body(body)
-
     redacted_json = json.dumps(redacted_body, ensure_ascii=False)
 
     t_up = time.time()
@@ -355,7 +354,6 @@ async def proxy_handler(request: Request, path: str):
             if k.lower() not in ("content-length", "transfer-encoding", "content-encoding")
         }
 
-        collected_chunks: list[str] = []
         max_tag_len = max((len(t) for t in reverse_map), default=0) if reverse_map else 0
 
         async def stream_with_deanon():
@@ -363,7 +361,6 @@ async def proxy_handler(request: Request, path: str):
             try:
                 async for raw_bytes in upstream_resp.aiter_bytes():
                     text = raw_bytes.decode("utf-8", errors="replace")
-                    collected_chunks.append(text)
 
                     if not reverse_map:
                         yield text
@@ -390,7 +387,7 @@ async def proxy_handler(request: Request, path: str):
                 upstream_ms = (time.time() - t_up) * 1000
                 req_id = uuid.uuid4().hex[:12]
                 await log_request_async(
-                    req_id, provider, f"/v1/{path}",
+                    req_id, provider, log_endpoint,
                     redacted_json[:2000], reverse_map,
                     filter_ms, upstream_ms, pii_count,
                 )
@@ -421,7 +418,7 @@ async def proxy_handler(request: Request, path: str):
 
         req_id = uuid.uuid4().hex[:12]
         await log_request_async(
-            req_id, provider, f"/v1/{path}",
+            req_id, provider, log_endpoint,
             redacted_json[:2000], reverse_map,
             filter_ms, upstream_ms, pii_count,
         )
@@ -435,3 +432,27 @@ async def proxy_handler(request: Request, path: str):
             status_code=resp.status_code,
             headers=dict(resp.headers),
         )
+
+
+@app.api_route(
+    "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]
+)
+async def proxy_v1(request: Request, path: str):
+    """Backward-compatible route: auto-detect provider from path/headers."""
+    headers_dict = dict(request.headers)
+    provider, upstream_base = detect_provider(path, headers_dict, _providers)
+    return await _proxy_core(request, provider, upstream_base, f"v1/{path}")
+
+
+@app.api_route(
+    "/p/{provider_name}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]
+)
+async def proxy_named(request: Request, provider_name: str, path: str):
+    """Explicit provider route: /p/groq/v1/chat/completions -> api.groq.com/openai/v1/chat/completions"""
+    upstream_base = resolve_named_provider(provider_name, _providers)
+    if not upstream_base:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown provider '{provider_name}'. Configured: {list(_providers.keys())}",
+        )
+    return await _proxy_core(request, provider_name, upstream_base, path)

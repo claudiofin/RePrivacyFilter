@@ -267,10 +267,12 @@ def cmd_run(args: list[str]):
     console.print(f"  [dim]Dashboard:[/] [bold white underline]{_dashboard_url()}[/]")
     console.print()
 
+    from providers import load_providers, get_env_vars
+
     import subprocess
     env = os.environ.copy()
-    env["OPENAI_BASE_URL"] = f"http://127.0.0.1:{PORT}/v1"
-    env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{PORT}"
+    providers = load_providers(PORT)
+    env.update(get_env_vars(providers))
 
     try:
         result = subprocess.run(args, env=env)
@@ -289,8 +291,10 @@ def cmd_run(args: list[str]):
 
 def cmd_env():
     """lei env — print env vars to eval in your shell."""
-    print(f"export OPENAI_BASE_URL=http://127.0.0.1:{PORT}/v1")
-    print(f"export ANTHROPIC_BASE_URL=http://127.0.0.1:{PORT}")
+    from providers import load_providers, get_env_vars
+    providers = load_providers(PORT)
+    for var, val in get_env_vars(providers).items():
+        print(f"export {var}={val}")
 
 
 def cmd_start():
