@@ -38,36 +38,25 @@ cd RePrivacyFilter
 
 The dashboard is available at `http://127.0.0.1:8990/ui` while the proxy is running. It shows intercepted requests, detected entities, and filtering statistics.
 
-## Model Setup
+## Model
 
-Re uses OpenAI's Privacy Filter, a 1.5B-parameter MoE model released under the Apache 2.0 license.
+Re uses [OpenAI's Privacy Filter](https://huggingface.co/openai/privacy-filter), a 1.5B-parameter MoE model (Apache 2.0). The ONNX model is downloaded automatically on first run (~772 MB, q4f16 quantized).
 
-**Option A -- Export from source:**
-
-```bash
-pip install opf
-python -m opf.export --format onnx --output ~/privacy-filter/
-```
-
-**Option B -- Download pre-exported ONNX:**
+To use a different variant or a custom model path:
 
 ```bash
-mkdir -p ~/privacy-filter
-# Download PrivacyFilter.onnx and PrivacyFilter.onnx.data from the release page
+export RE_MODEL_PATH=/path/to/model.onnx
 ```
 
-Expected files:
+Available ONNX variants on HuggingFace (in `onnx/` directory):
 
-```
-~/privacy-filter/PrivacyFilter.onnx
-~/privacy-filter/PrivacyFilter.onnx.data
-```
-
-To use a custom path, set `RE_MODEL_PATH`:
-
-```bash
-export RE_MODEL_PATH=/path/to/PrivacyFilter.onnx
-```
+| Variant | Size | Notes |
+|---------|------|-------|
+| `model_q4f16` | 772 MB | Default. Best speed/size tradeoff |
+| `model_q4` | 875 MB | INT4 quantized |
+| `model_quantized` | 1.5 GB | INT8 quantized |
+| `model_fp16` | 2.6 GB | Half precision |
+| `model` | 5.3 GB | Full FP32 |
 
 ## Supported Providers
 

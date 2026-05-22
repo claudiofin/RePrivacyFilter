@@ -13,7 +13,19 @@ import numpy as np
 import onnxruntime as ort
 import tiktoken
 
+HF_REPO = "openai/privacy-filter"
+HF_VARIANT = "model_q4f16"
 ONNX_MODEL_PATH = Path.home() / "privacy-filter" / "PrivacyFilter.onnx"
+
+
+def download_model(variant: str = HF_VARIANT) -> Path:
+    """Download ONNX model from HuggingFace if not cached. Returns path to .onnx file."""
+    from huggingface_hub import hf_hub_download
+    onnx_file = f"onnx/{variant}.onnx"
+    data_file = f"onnx/{variant}.onnx_data"
+    hf_hub_download(HF_REPO, onnx_file)
+    hf_hub_download(HF_REPO, data_file)
+    return Path(hf_hub_download(HF_REPO, onnx_file))
 
 SPAN_CLASSES = [
     "O",
@@ -66,12 +78,18 @@ class PIISpan:
 class PrivacyEngine:
     def __init__(
         self,
-        model_path: str | Path = ONNX_MODEL_PATH,
+        model_path: str | Path | None = None,
         use_coreml: bool = True,
         max_length: int = 4096,
     ):
         self.max_length = max_length
         self.encoding = tiktoken.get_encoding("o200k_base")
+
+        if model_path is None:
+            if ONNX_MODEL_PATH.exists():
+                model_path = ONNX_MODEL_PATH
+            else:
+                model_path = download_model()
 
         providers = []
         if use_coreml and "CoreMLExecutionProvider" in ort.get_available_providers():

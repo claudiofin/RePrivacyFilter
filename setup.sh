@@ -8,20 +8,15 @@ echo "==> Creating virtual environment..."
 python3 -m venv .venv
 
 echo "==> Installing dependencies..."
+.venv/bin/pip install --upgrade pip -q
 .venv/bin/pip install -r requirements.txt -q
 
-ONNX_PATH="$HOME/privacy-filter/PrivacyFilter.onnx"
-ONNX_DATA="$HOME/privacy-filter/PrivacyFilter.onnx.data"
-
-if [ ! -f "$ONNX_PATH" ] || [ ! -f "$ONNX_DATA" ]; then
-    echo ""
-    echo "WARNING: ONNX model not found at $ONNX_PATH"
-    echo "You need the model files to run Re."
-    echo "See README for instructions on how to export them."
-    echo ""
-else
-    echo "==> Model found at $ONNX_PATH ($(du -sh "$ONNX_DATA" | cut -f1) weights)"
-fi
+echo "==> Downloading ONNX model from HuggingFace (q4f16, ~772 MB)..."
+.venv/bin/python -c "
+from privacy_engine import download_model
+path = download_model()
+print(f'    Model cached at: {path}')
+"
 
 echo ""
 echo "==> Done! Run Re with:"
