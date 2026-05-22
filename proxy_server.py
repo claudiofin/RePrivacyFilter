@@ -181,13 +181,18 @@ def _redact_tree(obj, parent=None, key=None, combined_map=None, stats=None):
         stats = [0]
 
     if isinstance(obj, dict):
-        # Skip signed/cached content blocks entirely (signature would be invalidated)
-        if "signature" in obj:
+        # Thinking blocks: signature is mandatory, skip entirely
+        if "signature" in obj and "thinking" in obj:
             return combined_map, stats[0]
+        had_signature = "signature" in obj
+        old_stats = stats[0]
         for k in list(obj.keys()):
             if k in SKIP_KEYS:
                 continue
             _redact_tree(obj[k], obj, k, combined_map, stats)
+        # If content was modified in a signed cache block, drop signature (cache miss but PII safe)
+        if had_signature and stats[0] > old_stats:
+            obj.pop("signature", None)
     elif isinstance(obj, list):
         for i, v in enumerate(obj):
             _redact_tree(v, obj, i, combined_map, stats)
@@ -205,10 +210,47 @@ def _redact_tree(obj, parent=None, key=None, combined_map=None, stats=None):
     return combined_map, stats[0]
 
 
+def _extract_user_texts(body: dict) -> list[tuple[dict, int | str]]:
+    """Find all text strings in user messages (skip tool_results, system, assistant)."""
+    messages = body.get("messages")
+    if not messages:
+        return []
+    targets = []
+    for msg in messages:
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            targets.append((msg, "content"))
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str):
+                    targets.append((block, "text"))
+    return targets
+
+
 def _redact_body_sync(body: dict) -> tuple[dict, dict[str, str], int, float]:
     redacted = copy.deepcopy(body)
     t0 = time.time()
-    combined_map, total_pii = _redact_tree(redacted)
+
+    # Only redact user text blocks (skip system, tools, assistant, tool_results)
+    targets = _extract_user_texts(redacted)
+    combined_map: dict[str, str] = {}
+    total_pii = 0
+    if targets:
+        for parent, key in targets:
+            text = parent[key]
+            if not isinstance(text, str) or len(text) < MIN_TEXT_LEN:
+                continue
+            sanitized, spans, rmap = engine.redact(text)
+            if spans:
+                parent[key] = sanitized
+                combined_map.update(rmap)
+                total_pii += len(spans)
+    elif "messages" not in redacted:
+        # Fallback for non-chat endpoints (e.g. completions)
+        combined_map, total_pii = _redact_tree(redacted)
+
     ms = (time.time() - t0) * 1000
     return redacted, combined_map, total_pii, ms
 
