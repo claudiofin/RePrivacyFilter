@@ -29,6 +29,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 PORT = int(os.environ.get("RE_PORT", 8990))
 
 SESSION_TOKEN = os.environ.get("RE_TOKEN", secrets.token_hex(16))
+TOKEN_FILE = Path.home() / ".re" / ".session_token"
+LOG_PII = os.environ.get("RE_LOG_PII", "false").lower() in ("1", "true", "yes")
 
 log = logging.getLogger("re")
 
@@ -88,7 +90,7 @@ def _log_request_sync(
             (
                 req_id, time.time(), provider, endpoint,
                 redacted,
-                json.dumps(reverse_map, ensure_ascii=False),
+                json.dumps(reverse_map, ensure_ascii=False) if LOG_PII else "{}",
                 filter_ms, upstream_ms, pii_count,
             ),
         )
@@ -102,6 +104,8 @@ async def lifespan(app: FastAPI):
     global engine, http_client, _db_lock, _providers
     _db_lock = asyncio.Lock()
     _providers = load_providers(PORT)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_FILE.write_text(SESSION_TOKEN)
     model_path = os.environ.get("RE_MODEL_PATH")
     if model_path:
         engine = PrivacyEngine(model_path=model_path, use_coreml=True)
@@ -131,6 +135,19 @@ def _check_dashboard_auth(request: Request):
 
 
 # --- Recursive text extraction / de-anonymization ---
+
+_DROP_RESPONSE_HEADERS = frozenset({
+    "set-cookie", "content-encoding", "transfer-encoding",
+    "content-length", "content-security-policy",
+})
+
+
+def _filter_response_headers(headers) -> dict[str, str]:
+    return {
+        k: v for k, v in headers.items()
+        if k.lower() not in _DROP_RESPONSE_HEADERS
+    }
+
 
 SKIP_KEYS = frozenset({
     "model", "role", "type", "object", "id", "created", "index",
@@ -216,8 +233,14 @@ def _deanon_response_body(body: dict, reverse_map: dict[str, str]) -> dict:
 
 # --- Dashboard API (auth required) ---
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.get("/proxy/status")
-async def get_status():
+async def get_status(request: Request):
+    _check_dashboard_auth(request)
     return {
         "enabled": proxy_enabled,
         "providers": engine.active_providers if engine else [],
@@ -314,7 +337,7 @@ async def _proxy_core(
         return Response(
             content=resp.content,
             status_code=resp.status_code,
-            headers=dict(resp.headers),
+            headers=_filter_response_headers(resp.headers),
         )
 
     try:
@@ -329,7 +352,7 @@ async def _proxy_core(
         return Response(
             content=resp.content,
             status_code=resp.status_code,
-            headers=dict(resp.headers),
+            headers=_filter_response_headers(resp.headers),
         )
 
     is_streaming = body.get("stream", False)
@@ -430,7 +453,7 @@ async def _proxy_core(
         return Response(
             content=restored_body.encode() if isinstance(restored_body, str) else resp.content,
             status_code=resp.status_code,
-            headers=dict(resp.headers),
+            headers=_filter_response_headers(resp.headers),
         )
 
 

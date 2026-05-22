@@ -52,6 +52,17 @@ def load_providers(port: int = 8990) -> dict[str, dict]:
         with open(CONFIG_PATH, "rb") as f:
             user_config = tomllib.load(f)
         for name, cfg in user_config.get("providers", {}).items():
+            if name in RESERVED_PREFIXES:
+                raise ValueError(
+                    f"Provider name '{name}' is reserved (conflicts with route). "
+                    f"Reserved names: {', '.join(sorted(RESERVED_PREFIXES))}"
+                )
+            upstream = cfg.get("upstream", "")
+            if upstream and not upstream.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"Provider '{name}' has invalid upstream URL: {upstream}. "
+                    "Must start with http:// or https://"
+                )
             if name in providers:
                 providers[name].update(cfg)
             else:

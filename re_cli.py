@@ -230,7 +230,7 @@ def _wait_for_proxy(timeout: int = 20) -> bool:
     import urllib.request
     for _ in range(timeout * 2):
         try:
-            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/proxy/status", timeout=1)
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=1)
             return True
         except Exception:
             time.sleep(0.5)
@@ -291,10 +291,11 @@ def cmd_run(args: list[str]):
 
 def cmd_env():
     """re env — print env vars to eval in your shell."""
+    import shlex
     from providers import load_providers, get_env_vars
     providers = load_providers(PORT)
     for var, val in get_env_vars(providers).items():
-        print(f"export {var}={val}")
+        print(f"export {var}={shlex.quote(val)}")
 
 
 def cmd_start():

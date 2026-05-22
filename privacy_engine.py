@@ -23,7 +23,6 @@ def download_model(variant: str = HF_VARIANT) -> Path:
     from huggingface_hub import hf_hub_download
     onnx_file = f"onnx/{variant}.onnx"
     data_file = f"onnx/{variant}.onnx_data"
-    hf_hub_download(HF_REPO, onnx_file)
     hf_hub_download(HF_REPO, data_file)
     return Path(hf_hub_download(HF_REPO, onnx_file))
 
@@ -206,7 +205,8 @@ class PrivacyEngine:
         stride = self.max_length - overlap
 
         num_tokens = len(token_ids)
-        full_logits = np.zeros((num_tokens, 33), dtype=np.float32)
+        num_labels = len(TOKEN_LABELS)
+        full_logits = np.zeros((num_tokens, num_labels), dtype=np.float32)
         counts = np.zeros(num_tokens, dtype=np.float32)
 
         for start in range(0, num_tokens, stride):

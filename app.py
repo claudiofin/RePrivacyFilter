@@ -7,13 +7,26 @@ import subprocess
 import sys
 import threading
 import webbrowser
+from pathlib import Path
 
 import rumps
 import requests
 
 PROXY_PORT = 8990
 PROXY_URL = f"http://127.0.0.1:{PROXY_PORT}"
-UI_URL = f"{PROXY_URL}/ui"
+TOKEN_FILE = Path.home() / ".re" / ".session_token"
+
+
+def _read_token() -> str:
+    try:
+        return TOKEN_FILE.read_text().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def _auth_headers() -> dict:
+    token = _read_token()
+    return {"X-Re-Token": token} if token else {}
 
 
 class PrivacyFilterApp(rumps.App):
@@ -71,9 +84,10 @@ class PrivacyFilterApp(rumps.App):
             for _ in range(30):
                 time.sleep(1)
                 try:
-                    r = requests.get(f"{PROXY_URL}/proxy/status", timeout=2)
+                    r = requests.get(f"{PROXY_URL}/health", timeout=2)
                     if r.ok:
-                        data = r.json()
+                        sr = requests.get(f"{PROXY_URL}/proxy/status", headers=_auth_headers(), timeout=2)
+                        data = sr.json() if sr.ok else {}
                         prov = ", ".join(data.get("providers", []))
                         self.menu["Status: Loading..."].title = (
                             f"Filter ON — {prov}"
@@ -90,7 +104,7 @@ class PrivacyFilterApp(rumps.App):
     @rumps.clicked("Toggle Filter")
     def toggle_filter(self, sender):
         try:
-            r = requests.post(f"{PROXY_URL}/proxy/toggle", timeout=5)
+            r = requests.post(f"{PROXY_URL}/proxy/toggle", headers=_auth_headers(), timeout=5)
             data = r.json()
             self._proxy_on = data["enabled"]
             status_item = list(self.menu.values())[0]
@@ -105,7 +119,9 @@ class PrivacyFilterApp(rumps.App):
 
     @rumps.clicked("Open Dashboard")
     def open_dashboard(self, sender):
-        webbrowser.open(UI_URL)
+        token = _read_token()
+        url = f"{PROXY_URL}/ui?token={token}" if token else f"{PROXY_URL}/ui"
+        webbrowser.open(url)
 
     @rumps.clicked("Quit")
     def quit_app(self, sender):

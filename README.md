@@ -83,12 +83,38 @@ env_value = "http://127.0.0.1:{port}/p/ollama"
 
 `./re run` and `./re env` automatically set env vars for all configured providers. See `providers.example.toml` for more examples.
 
+## Configuration
+
+All configuration is via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RE_PORT` | `8990` | Proxy listen port |
+| `RE_MODEL_PATH` | auto-detect | Path to custom ONNX model |
+| `RE_TOKEN` | random per session | Dashboard auth token (auto-generated) |
+| `RE_LOG_PII` | `false` | Store PII mapping in local DB for dashboard display. When `false` (default), the reverse map is kept in memory only for the duration of each request and is **not** written to disk. Set to `true` to enable the full original-vs-sanitized diff view in the dashboard. |
+
+## Security
+
+Re is designed for local, single-user use. The proxy binds to `127.0.0.1` only and is not meant to be exposed to the network.
+
+**Authentication:** All dashboard and management endpoints require a session token (auto-generated or set via `RE_TOKEN`). API proxy endpoints (`/v1/...`, `/p/...`) do not require a Re token -- clients authenticate directly with their upstream API keys, which are forwarded as-is.
+
+**PII storage:** By default, PII mappings are **not** persisted to disk. The local SQLite database (`proxy_log.db`) stores only redacted request bodies and aggregate stats. Set `RE_LOG_PII=true` if you want the dashboard to show the full original-vs-sanitized diff (the mapping is then stored locally in plain text).
+
+**API keys:** Re forwards your API keys to the upstream provider but never logs, stores, or inspects them.
+
+**Provider validation:** Custom provider names in `providers.toml` are validated against reserved route names (`v1`, `ui`, `proxy`) and upstream URLs must use `http://` or `https://`.
+
 ## Limitations
 
 - PII detection is strongest for English text. Italian and other languages have noticeably lower recall.
 - CoreML acceleration is not available when the model uses external data files. Re falls back to CPU inference automatically (~200-400ms per request).
-- The model is 5.5 GB in FP32. INT8 quantization is on the roadmap.
 - Streaming responses are buffered per-chunk; very long streams may add minor latency.
+- The model may produce false positives on common English names used as words (e.g. "Will", "May") and false negatives on non-standard PII formats (e.g. Italian codice fiscale). Custom regex rules via `providers.toml` are planned.
+- De-anonymization relies on exact placeholder matching. If the LLM rephrases a placeholder (e.g. turns `<PRIVATE_PERSON_1>` into "the person mentioned"), the original value cannot be restored.
+- No rate limiting. A runaway client loop can saturate CPU with ONNX inference.
+- No HTTPS. Acceptable on localhost; do not bind to `0.0.0.0` without a TLS terminator.
 
 ## Disclaimer
 

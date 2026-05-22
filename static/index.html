@@ -301,13 +301,13 @@
 <script>
 const API = '';
 let TOKEN = '';
-const authParam = () => TOKEN ? `?token=${TOKEN}` : '';
+const authHeaders = () => TOKEN ? {'X-Re-Token': TOKEN} : {};
 let logs = [];
 let expandedIds = new Set();
 
 async function fetchStatus() {
   try {
-    const r = await fetch(`${API}/proxy/status`);
+    const r = await fetch(`${API}/proxy/status`, {headers: authHeaders()});
     const d = await r.json();
     const dot = document.getElementById('statusDot');
     const txt = document.getElementById('statusText');
@@ -323,7 +323,7 @@ async function fetchStatus() {
 }
 
 async function toggleFilter() {
-  await fetch(`${API}/proxy/toggle${authParam()}`, { method: 'POST' });
+  await fetch(`${API}/proxy/toggle`, { method: 'POST', headers: authHeaders() });
   fetchStatus();
 }
 
@@ -343,6 +343,23 @@ function highlightPii(text) {
     /&lt;([A-Z_]+_\d+)&gt;/g,
     '<span class="placeholder-tag">&lt;$1&gt;</span>'
   );
+}
+
+function reconstructOriginal(redactedStr, rmap) {
+  let text = redactedStr;
+  for (const [tag, original] of Object.entries(rmap)) {
+    text = text.split(tag).join(original);
+  }
+  return text;
+}
+
+function highlightOriginalPii(text, rmap) {
+  let html = escapeHtml(text);
+  for (const [, original] of Object.entries(rmap)) {
+    const escaped = escapeHtml(original);
+    html = html.split(escaped).join(`<span class="pii-highlight">${escaped}</span>`);
+  }
+  return html;
 }
 
 function formatJson(str) {
@@ -380,14 +397,16 @@ function renderLogs(data) {
   list.innerHTML = data.map(d => {
     const provClass = d.provider || 'openai';
     const piiClass = (d.pii_count||0) > 0 ? '' : ' clean';
-    const original = formatJson(d.original_body || '');
-    const redacted = formatJson(d.redacted_body || '');
     let rmap = {};
     try { rmap = JSON.parse(d.reverse_map || '{}'); } catch(e) {}
     const mapEntries = Object.entries(rmap);
+    const redacted = formatJson(d.redacted_body || '');
+    const original = mapEntries.length > 0
+      ? formatJson(reconstructOriginal(d.redacted_body || '', rmap))
+      : redacted;
 
     return `
-    <div class="log-entry${expandedIds.has(d.id) ? ' expanded' : ''}" onclick="toggleEntry(this, '${d.id}')">
+    <div class="log-entry${expandedIds.has(d.id) ? ' expanded' : ''}" onclick="toggleEntry(this, '${escapeHtml(d.id)}')">
       <div class="log-summary">
         <span class="provider ${provClass}">${escapeHtml(provClass)}</span>
         <span class="endpoint">${escapeHtml(d.endpoint || '')}</span>
@@ -399,7 +418,7 @@ function renderLogs(data) {
         <div class="diff-view">
           <div class="diff-pane">
             <span class="pane-label">Original (intercepted)</span>
-${escapeHtml(original)}</div>
+${highlightOriginalPii(original, rmap)}</div>
           <div class="diff-pane">
             <span class="pane-label">Sanitized (sent upstream)</span>
 ${highlightPii(redacted)}</div>
@@ -430,7 +449,7 @@ function toggleEntry(el, id) {
 
 async function fetchLogs() {
   try {
-    const r = await fetch(`${API}/proxy/logs?limit=100&token=${TOKEN}`);
+    const r = await fetch(`${API}/proxy/logs?limit=100`, {headers: authHeaders()});
     logs = await r.json();
     renderLogs(logs);
   } catch(e) {}
