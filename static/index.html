@@ -296,6 +296,12 @@
       <p>Configure your client to use http://127.0.0.1:8990/v1/ as the API base URL</p>
     </div>
   </div>
+
+  <div id="pagination" style="display:none; text-align:center; padding:16px; gap:12px; align-items:center; justify-content:center;">
+    <button class="toggle-btn" id="prevBtn" onclick="changePage(-1)">Previous</button>
+    <span id="pageInfo" style="font-size:13px; color:var(--text-dim);"></span>
+    <button class="toggle-btn" id="nextBtn" onclick="changePage(1)">Next</button>
+  </div>
 </div>
 
 <script>
@@ -304,6 +310,9 @@ let TOKEN = '';
 const authHeaders = () => TOKEN ? {'X-Re-Token': TOKEN} : {};
 let logs = [];
 let expandedIds = new Set();
+const PAGE_SIZE = 20;
+let currentPage = 0;
+let totalLogs = 0;
 
 async function fetchStatus() {
   try {
@@ -382,18 +391,6 @@ function renderLogs(data) {
   const list = document.getElementById('logList');
   if (!data.length) return;
 
-  let totalPii = 0, totalFilter = 0, totalUp = 0;
-  data.forEach(d => {
-    totalPii += d.pii_count || 0;
-    totalFilter += d.filter_ms || 0;
-    totalUp += d.upstream_ms || 0;
-  });
-
-  document.getElementById('statTotal').textContent = data.length;
-  document.getElementById('statPii').textContent = totalPii;
-  document.getElementById('statFilter').textContent = `${Math.round(totalFilter/data.length)}ms`;
-  document.getElementById('statUpstream').textContent = `${Math.round(totalUp/data.length)}ms`;
-
   list.innerHTML = data.map(d => {
     const provClass = d.provider || 'openai';
     const piiClass = (d.pii_count||0) > 0 ? '' : ' clean';
@@ -449,15 +446,50 @@ function toggleEntry(el, id) {
 
 async function fetchLogs() {
   try {
-    const r = await fetch(`${API}/proxy/logs?limit=100`, {headers: authHeaders()});
+    const offset = currentPage * PAGE_SIZE;
+    const r = await fetch(`${API}/proxy/logs?limit=${PAGE_SIZE}&offset=${offset}`, {headers: authHeaders()});
     logs = await r.json();
     renderLogs(logs);
+    updatePagination();
   } catch(e) {}
 }
 
+async function fetchStats() {
+  try {
+    const r = await fetch(`${API}/proxy/stats`, {headers: authHeaders()});
+    const s = await r.json();
+    totalLogs = s.total || 0;
+    document.getElementById('statTotal').textContent = totalLogs;
+    document.getElementById('statPii').textContent = s.pii || 0;
+    document.getElementById('statFilter').textContent = `${Math.round(s.avg_filter || 0)}ms`;
+    document.getElementById('statUpstream').textContent = `${Math.round(s.avg_upstream || 0)}ms`;
+  } catch(e) {}
+}
+
+function updatePagination() {
+  const pag = document.getElementById('pagination');
+  const totalPages = Math.max(1, Math.ceil(totalLogs / PAGE_SIZE));
+  if (totalLogs <= PAGE_SIZE) {
+    pag.style.display = 'none';
+    return;
+  }
+  pag.style.display = 'flex';
+  document.getElementById('pageInfo').textContent = `Page ${currentPage + 1} of ${totalPages}`;
+  document.getElementById('prevBtn').disabled = currentPage === 0;
+  document.getElementById('nextBtn').disabled = currentPage >= totalPages - 1;
+}
+
+function changePage(delta) {
+  const totalPages = Math.ceil(totalLogs / PAGE_SIZE);
+  currentPage = Math.max(0, Math.min(currentPage + delta, totalPages - 1));
+  fetchLogs();
+}
+
 fetchStatus();
+fetchStats();
 fetchLogs();
 setInterval(fetchStatus, 5000);
+setInterval(fetchStats, 5000);
 setInterval(fetchLogs, 3000);
 </script>
 </body>
