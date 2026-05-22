@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.db-journal
+.DS_Store
+.env
+*.onnx
+*.onnx.data
+.claude/
