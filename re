@@ -1,3 +1,3 @@
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$DIR/.venv/bin/python" "$DIR/re.py" "$@"
+exec "$DIR/.venv/bin/python" "$DIR/re_cli.py" "$@"
