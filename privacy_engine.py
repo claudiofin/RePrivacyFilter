@@ -141,7 +141,9 @@ class PrivacyEngine:
 
     def _run_inference(self, token_ids: list[int]) -> np.ndarray:
         input_array = np.array([token_ids], dtype=np.int64)
-        outputs = self.session.run(None, {"input_ids": input_array})
+        attention_mask = np.ones_like(input_array)
+        feeds = {"input_ids": input_array, "attention_mask": attention_mask}
+        outputs = self.session.run(None, feeds)
         logits = outputs[0]
         return logits[0]
 
