@@ -26,11 +26,11 @@ from providers import load_providers, detect_provider, resolve_named_provider, R
 
 DB_PATH = Path(__file__).parent / "proxy_log.db"
 STATIC_DIR = Path(__file__).parent / "static"
-PORT = int(os.environ.get("LEI_PORT", 8990))
+PORT = int(os.environ.get("RE_PORT", 8990))
 
-SESSION_TOKEN = os.environ.get("LEI_TOKEN", secrets.token_hex(16))
+SESSION_TOKEN = os.environ.get("RE_TOKEN", secrets.token_hex(16))
 
-log = logging.getLogger("lei")
+log = logging.getLogger("re")
 
 engine: PrivacyEngine | None = None
 proxy_enabled: bool = True
@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
     global engine, http_client, _db_lock, _providers
     _db_lock = asyncio.Lock()
     _providers = load_providers(PORT)
-    model_path = os.environ.get("LEI_MODEL_PATH")
+    model_path = os.environ.get("RE_MODEL_PATH")
     if model_path:
         engine = PrivacyEngine(model_path=model_path, use_coreml=True)
     else:
@@ -125,7 +125,7 @@ app.add_middleware(
 
 
 def _check_dashboard_auth(request: Request):
-    token = request.query_params.get("token") or request.headers.get("x-lei-token")
+    token = request.query_params.get("token") or request.headers.get("x-re-token")
     if token != SESSION_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid token")
 

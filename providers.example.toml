@@ -1,5 +1,5 @@
-# Lei provider configuration
-# Copy to ~/.lei/providers.toml to customize.
+# Re provider configuration
+# Copy to ~/.re/providers.toml to customize.
 #
 # Built-in providers (openai, anthropic) work out of the box.
 # Add entries here to override their upstream URLs or add new providers.
@@ -8,7 +8,7 @@
 #   upstream       — the real API base URL to forward requests to
 #   path_patterns  — URL path segments that identify this provider
 #   path_match     — "exact" (must match full path) or "suffix" (default, endswith)
-#   env_var        — environment variable name that lei sets for this provider
+#   env_var        — environment variable name that re sets for this provider
 #   env_value      — value to set ({port} is replaced with the proxy port)
 
 # --- Override built-in providers ---

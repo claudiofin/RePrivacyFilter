@@ -19,7 +19,7 @@ UI_URL = f"{PROXY_URL}/ui"
 class PrivacyFilterApp(rumps.App):
     def __init__(self):
         super().__init__(
-            "LeiPrivacyFilter",
+            "RePrivacyFilter",
             icon=None,
             title="🛡️",
             quit_button=None,

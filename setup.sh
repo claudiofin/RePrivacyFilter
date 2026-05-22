@@ -16,7 +16,7 @@ ONNX_DATA="$HOME/privacy-filter/PrivacyFilter.onnx.data"
 if [ ! -f "$ONNX_PATH" ] || [ ! -f "$ONNX_DATA" ]; then
     echo ""
     echo "WARNING: ONNX model not found at $ONNX_PATH"
-    echo "You need the model files to run Lei."
+    echo "You need the model files to run Re."
     echo "See README for instructions on how to export them."
     echo ""
 else
@@ -24,7 +24,7 @@ else
 fi
 
 echo ""
-echo "==> Done! Run Lei with:"
-echo "    ./lei              # interactive dashboard"
-echo "    ./lei run <cmd>    # wrap a command"
-echo "    ./lei env          # print env vars"
+echo "==> Done! Run Re with:"
+echo "    ./re              # interactive dashboard"
+echo "    ./re run <cmd>    # wrap a command"
+echo "    ./re env          # print env vars"

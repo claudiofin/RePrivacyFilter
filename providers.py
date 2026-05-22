@@ -6,7 +6,7 @@ Handles provider detection by URL path and env var mapping.
 import tomllib
 from pathlib import Path
 
-CONFIG_PATH = Path.home() / ".lei" / "providers.toml"
+CONFIG_PATH = Path.home() / ".re" / "providers.toml"
 
 DEFAULT_PROVIDERS: dict[str, dict] = {
     "anthropic": {
@@ -106,7 +106,7 @@ def resolve_named_provider(
 
 
 def get_env_vars(providers: dict) -> dict[str, str]:
-    """Return all env vars to inject for lei run / lei env."""
+    """Return all env vars to inject for re run / re env."""
     env = {}
     for cfg in providers.values():
         if "env_var" in cfg and "env_value" in cfg:

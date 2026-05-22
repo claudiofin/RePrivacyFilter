@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-lei — Privacy filter proxy CLI.
+re — Privacy filter proxy CLI.
 Intercepts OpenAI/Anthropic API calls, scrubs PII locally via ONNX,
 shows live logs in the terminal.
 """
@@ -30,11 +30,11 @@ PORT = 8990
 console = Console()
 
 BANNER = r"""
-[bold blue]  _         _  [/]
-[bold blue] | |    ___|_| [/]  [bold white]Privacy Filter Proxy[/]
-[bold blue] | |   / _ \ | [/]  [dim]ONNX · local · real-time[/]
-[bold blue] | |__|  __/ | [/]
-[bold blue] |____/\___|_| [/]
+[bold blue]  ____       [/]
+[bold blue] |  _ \ ___  [/]  [bold white]Privacy Filter Proxy[/]
+[bold blue] | |_) / _ \ [/]  [dim]ONNX · local · real-time[/]
+[bold blue] |  _ <  __/ [/]
+[bold blue] |_| \_\___| [/]
 """
 
 
@@ -247,10 +247,10 @@ def _dashboard_url() -> str:
 
 
 def cmd_run(args: list[str]):
-    """lei run <command> — start proxy, run command with env vars set, show logs."""
+    """re run <command> — start proxy, run command with env vars set, show logs."""
     if not args:
-        console.print("[red]Usage: lei run <command>[/]")
-        console.print("[dim]  Example: lei run python my_script.py[/]")
+        console.print("[red]Usage: re run <command>[/]")
+        console.print("[dim]  Example: re run python my_script.py[/]")
         sys.exit(1)
 
     console.print(BANNER)
@@ -290,7 +290,7 @@ def cmd_run(args: list[str]):
 
 
 def cmd_env():
-    """lei env — print env vars to eval in your shell."""
+    """re env — print env vars to eval in your shell."""
     from providers import load_providers, get_env_vars
     providers = load_providers(PORT)
     for var, val in get_env_vars(providers).items():
@@ -298,7 +298,7 @@ def cmd_env():
 
 
 def cmd_start():
-    """lei (no args) or lei start — interactive mode with live dashboard."""
+    """re (no args) or re start — interactive mode with live dashboard."""
     console.print(BANNER)
     _start_proxy_background()
 
@@ -310,9 +310,9 @@ def cmd_start():
         f"  [bold green]Proxy listening on[/] [bold white underline]http://127.0.0.1:{PORT}/v1/[/]"
     )
     console.print()
-    console.print("  [bold]To route traffic through Lei, use one of:[/]")
-    console.print(f"    [cyan]./lei run <command>[/]        [dim]# auto-sets env vars for that command[/]")
-    console.print(f"    [cyan]eval \"$(./lei env)\"[/]        [dim]# sets env vars in current shell[/]")
+    console.print("  [bold]To route traffic through Re, use one of:[/]")
+    console.print(f"    [cyan]./re run <command>[/]        [dim]# auto-sets env vars for that command[/]")
+    console.print(f"    [cyan]eval \"$(./re env)\"[/]        [dim]# sets env vars in current shell[/]")
     console.print()
     console.print(
         f"  [dim]Dashboard:[/] [bold white underline]{_dashboard_url()}[/]"
@@ -358,10 +358,10 @@ def main():
     elif args[0] == "env":
         cmd_env()
     else:
-        console.print(f"[bold]lei[/] — Privacy Filter Proxy\n")
-        console.print("  [cyan]lei[/]              Start proxy with live dashboard")
-        console.print("  [cyan]lei run <cmd>[/]    Run a command through the proxy")
-        console.print("  [cyan]lei env[/]          Print env vars (use with eval)")
+        console.print(f"[bold]re[/] — Privacy Filter Proxy\n")
+        console.print("  [cyan]re[/]              Start proxy with live dashboard")
+        console.print("  [cyan]re run <cmd>[/]    Run a command through the proxy")
+        console.print("  [cyan]re env[/]          Print env vars (use with eval)")
         sys.exit(0)
 
 
