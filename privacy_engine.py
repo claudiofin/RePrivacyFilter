@@ -5,6 +5,8 @@ decodes BIOES labels, and replaces PII spans with placeholders.
 """
 
 import bisect
+import hashlib
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -64,6 +66,48 @@ for i, label in enumerate(TOKEN_LABELS):
         TOKEN_TO_SPAN[i] = SPAN_CLASSES.index(cls_name)
         TOKEN_BOUNDARY[i] = boundary
 
+# --- Category whitelist helpers ---
+
+CATEGORY_ALIASES: dict[str, str] = {}
+for _cat in SPAN_CLASSES[1:]:
+    CATEGORY_ALIASES[_cat] = _cat
+    _short = _cat.removeprefix("private_")
+    if _short != _cat:
+        CATEGORY_ALIASES[_short] = _cat
+CATEGORY_ALIASES["name"] = "private_person"
+CATEGORY_ALIASES["account"] = "account_number"
+
+ALL_CATEGORIES = frozenset(SPAN_CLASSES[1:])
+
+
+def parse_categories(raw: str) -> frozenset[str]:
+    """Parse RE_REDACT value (comma-separated) into canonical category names.
+
+    Accepts both full names (``private_email``) and short aliases (``email``).
+    ``*`` or empty string means all categories.
+    """
+    if not raw or raw.strip() == "*":
+        return ALL_CATEGORIES
+    cats: set[str] = set()
+    for tok in raw.split(","):
+        tok = tok.strip().lower()
+        if not tok:
+            continue
+        if tok not in CATEGORY_ALIASES:
+            raise ValueError(
+                f"Unknown PII category '{tok}'. "
+                f"Valid: {sorted(CATEGORY_ALIASES)}"
+            )
+        cats.add(CATEGORY_ALIASES[tok])
+    return frozenset(cats) if cats else ALL_CATEGORIES
+
+
+def _softmax(logits: np.ndarray) -> np.ndarray:
+    """Row-wise softmax (numerically stable)."""
+    shifted = logits - logits.max(axis=-1, keepdims=True)
+    e = np.exp(shifted)
+    return e / e.sum(axis=-1, keepdims=True)
+
 
 @dataclass
 class PIISpan:
@@ -80,8 +124,15 @@ class PrivacyEngine:
         model_path: str | Path | None = None,
         use_coreml: bool = True,
         max_length: int = 4096,
+        categories: frozenset[str] | None = None,
+        confidence_threshold: float = 0.0,
+        cache_size: int = 512,
     ):
         self.max_length = max_length
+        self.categories = categories if categories is not None else ALL_CATEGORIES
+        self.confidence_threshold = confidence_threshold
+        self._cache: OrderedDict[str, list[PIISpan]] = OrderedDict()
+        self._cache_size = cache_size
         self.encoding = tiktoken.get_encoding("o200k_base")
 
         if model_path is None:
@@ -197,6 +248,15 @@ class PrivacyEngine:
         return spans
 
     def detect(self, text: str) -> list[PIISpan]:
+        # LRU cache lookup
+        if self._cache_size > 0:
+            text_hash = hashlib.sha256(text.encode()).hexdigest()[:16]
+            if text_hash in self._cache:
+                self._cache.move_to_end(text_hash)
+                return list(self._cache[text_hash])
+        else:
+            text_hash = None
+
         token_ids = self._tokenize(text)
         if not token_ids:
             return []
@@ -222,6 +282,14 @@ class PrivacyEngine:
         full_logits /= counts[:, None]
 
         labels = self._decode_labels(full_logits)
+
+        # Per-token confidence (softmax probability of the predicted label)
+        if self.confidence_threshold > 0:
+            probs = _softmax(full_logits)
+            token_conf = probs[np.arange(len(labels)), labels]
+        else:
+            token_conf = None
+
         token_spans = self._labels_to_spans(labels)
 
         _, char_starts, char_ends = self._decode_token_char_ranges(token_ids)
@@ -230,9 +298,17 @@ class PrivacyEngine:
         for span_cls, tok_start, tok_end in token_spans:
             if span_cls == 0:
                 continue
+            category = SPAN_CLASSES[span_cls]
+            # Category whitelist filter
+            if category not in self.categories:
+                continue
+            # Confidence threshold filter (min confidence across span tokens)
+            if token_conf is not None:
+                span_confidence = float(token_conf[tok_start:tok_end].min())
+                if span_confidence < self.confidence_threshold:
+                    continue
             c_start = char_starts[tok_start]
             c_end = char_ends[tok_end - 1]
-            category = SPAN_CLASSES[span_cls]
             span_text = text[c_start:c_end]
             pii_spans.append(
                 PIISpan(
@@ -246,7 +322,15 @@ class PrivacyEngine:
 
         pii_spans.sort(key=lambda s: s.start)
         pii_spans = _trim_whitespace(pii_spans, text)
-        return _remove_overlaps(pii_spans)
+        result = _remove_overlaps(pii_spans)
+
+        # Store in LRU cache
+        if text_hash is not None:
+            self._cache[text_hash] = result
+            if len(self._cache) > self._cache_size:
+                self._cache.popitem(last=False)
+
+        return result
 
     def redact(self, text: str) -> tuple[str, list[PIISpan], dict[str, str]]:
         """Returns (redacted_text, detected_spans, reverse_mapping)."""

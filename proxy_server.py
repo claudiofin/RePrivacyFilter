@@ -21,7 +21,7 @@ from fastapi import FastAPI, Request, Response, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-from privacy_engine import PrivacyEngine
+from privacy_engine import PrivacyEngine, parse_categories
 from providers import load_providers, detect_provider, resolve_named_provider, RESERVED_PREFIXES
 
 DB_PATH = Path(__file__).parent / "proxy_log.db"
@@ -107,10 +107,18 @@ async def lifespan(app: FastAPI):
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     TOKEN_FILE.write_text(SESSION_TOKEN)
     model_path = os.environ.get("RE_MODEL_PATH")
-    if model_path:
-        engine = PrivacyEngine(model_path=model_path, use_coreml=True)
-    else:
-        engine = PrivacyEngine(use_coreml=True)
+    categories_raw = os.environ.get("RE_REDACT", "")
+    confidence = float(os.environ.get("RE_CONFIDENCE", "0.0"))
+    cache_size = int(os.environ.get("RE_CACHE_SIZE", "512"))
+    categories = parse_categories(categories_raw) if categories_raw else None
+
+    engine = PrivacyEngine(
+        model_path=model_path if model_path else None,
+        use_coreml=True,
+        categories=categories,
+        confidence_threshold=confidence,
+        cache_size=cache_size,
+    )
     http_client = httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=30.0))
     init_db()
     yield

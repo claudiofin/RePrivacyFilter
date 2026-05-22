@@ -93,6 +93,9 @@ All configuration is via environment variables:
 | `RE_MODEL_PATH` | auto-detect | Path to custom ONNX model |
 | `RE_TOKEN` | random per session | Dashboard auth token (auto-generated) |
 | `RE_LOG_PII` | `false` | Store PII mapping in local DB for dashboard display. When `false` (default), the reverse map is kept in memory only for the duration of each request and is **not** written to disk. Set to `true` to enable the full original-vs-sanitized diff view in the dashboard. |
+| `RE_REDACT` | all categories | Comma-separated list of PII categories to redact. Unset or `*` = all. Accepts full names (`private_email`) or short aliases (`email`). Valid: `account`, `address`, `date`, `email`, `person`/`name`, `phone`, `url`, `secret`. |
+| `RE_CONFIDENCE` | `0.0` | Minimum softmax confidence (0.0–1.0) for a PII span to be redacted. Spans where any token falls below this threshold are left untouched. Useful to reduce false positives (try `0.7`–`0.9`). |
+| `RE_CACHE_SIZE` | `512` | Maximum number of text→spans results kept in the LRU cache. Set to `0` to disable caching. |
 
 ## Security
 
